@@ -1,5 +1,5 @@
 # Status.io Outbound (from xMatters) Integration
-With this Outbound Integration, components on Status.io affected by one or more xMatters events have incidents created for them unless they are in an active maintenance window. When the last xMatters event affecting a component has been terminated, the incident for the component is updated to show that the component is now healthy again but being monitored.
+With the steps in this repository, components on Status.io affected by one or more xMatters events have incidents created for them unless they are in an active maintenance window. When the last xMatters event affecting a component has been terminated, the incident for the component is updated to show that the component is now healthy again but being monitored.
 
 The concept behind this integration is to allow the Status.io dashboard to be updated automatically from events happening on xMatters.
 
@@ -12,10 +12,10 @@ The concept behind this integration is to allow the Status.io dashboard to be up
 * xMatters account - If you don't have one, [get one](https://www.xmatters.com)!
 
 # Files
-* [StatusioIntegration.zip](StatusioIntegration.zip) - This is an example workflow. Note that it does not include any inbound integration to trigger the creation of an xMatters event.
+* [StatusioIntegration.zip](StatusioIntegration.zip) - This contains the custom steps. Note that it does not include any inbound integration to trigger the creation of an xMatters event.
 
 # How it works
-This integration is intended to be added to an existing workflow that is triggered when there is a problem and when that problem has been resolved, e.g. the AWS CloudWatch Integration.
+This repository is intended to be added to an existing workflow that is triggered when there is a problem and when that problem has been resolved, e.g. the AWS CloudWatch Integration.
 
 The logic of the workflow is expected to follow something like the following:
 
@@ -28,7 +28,7 @@ The logic of the workflow is expected to follow something like the following:
 
 3. If the output from that step is `false`, a xMatters event is created, followed by `Status.io: status mapper` and `Status.io: create incident`.
 
-4. If the trigger indicates a non-alarm status, the workflow runs a `Get x Events for y` xMatters step followed by `Status.io: update incdent`. The workflow should only attempt to terminate the underlying xMatters event as the final step. This will be explained in more detail below.
+4. If the trigger indicates a non-alarm status, the workflow runs a `Get x Events for y` xMatters step followed by `Status.io: update incident`. The workflow should only attempt to terminate the underlying xMatters event as the final step. This will be explained in more detail below.
 
 The following image shows an example complete workflow that started from the CloudWatch Integration. The boxes marked in yellow have been added to incorporate the Status.io integration.
 
@@ -106,8 +106,7 @@ To add the integration to your workflow, follow these steps:
    - Add a `Switch` step and connect it to the output from the maintenance step.
      - Select `Status.io: component in maintenance?.Is in maintenance` as the property.
      - Set the switch value to `false`.
-   - From the output of the `false` box, add `xMatters Create Event`, `Status.io: status mapper` and `Status.io: create incident`.
-     - In the `Create Event` step, set `AffectedComponent` to the Component value from step #1. Set any other event values as desired.
+   - From the output of the `false` box, add `Status.io: status mapper`, `Status.io: create incident` and `xMatters Create Event`.
      - In the `Status Mapper` step, set the `Status` field to the `Alarm Severity` field from step #1 then enter appropriate values to map your trigger severity thresholds to the four different levels supports by Status.io.
      - In the `Create Incident` step:
        - Set the `Status.io Component` field to the Component value from step #1
@@ -117,16 +116,19 @@ To add the integration to your workflow, follow these steps:
        - Set the `Status description` to any desired value.
        - Set the `Status code` to the output from `Status.io: status mapper> Status.io status`
        - In each of the `Notify` fields, set the string to `1` if you want Status.io to use that notification channel/mechanism.
+     - In the `Create Event` step, set `AffectedComponent` to the Component value from step #1. Set any other event values as desired.
 
 3. In the part of the workflow that handles an alarm being cleared, **before** the step that terminates events, do the following:
-   - Add a `Get Events` step from the `Tools` section.
+
+   a. Add a `Get Events` step from the `Tools` section.
      - Set the `Step Label` to `Get ACTIVE Events for Affected Component`.
      - Set `Status` to `ACTIVE`.
      - Set `Property Name` to `AffectedComponent#en`.
      - Set the `Property Value` field to the Component value from step #1.
      - Set `Exact Property Value Match` to `TRUE`.
      - Click `OK`.
-   - Add a `Status.io: update incident` step and connect it to the output from the `Get Events` step.
+
+   b. Add a `Status.io: update incident` step and connect it to the output from the `Get Events` step.
      - Set the `Status.io Component` field to the Component value from step #1.
      - Set the `xMatters Event Count` field to the `Get ACTIVE Events for Affected Component > Total Event Count` value.
      - Set the `Status.io Page ID` field to the Page ID constant.
@@ -135,7 +137,17 @@ To add the integration to your workflow, follow these steps:
      - Set `New incident state` to an appropriate value, typically 300 which means monitoring. Alternatively, use 200 which means that the problem has been identified.
      - Set `Update message` to an appropriate message to show on the incident.
      - In each of the `Notify` fields, set the string to `1` if you want Status.io to use that notification channel/mechanism.
-   - Connect the output from the `Update Incident` step to the input of the `Terminate Events` step.
+   
+   c. (Optional) Add a `Get Events` step from the `Tools` section.
+      - Set `Status` to `ACTIVE`.
+      - Set `Property Name` to `AlarmName#en`.
+      - Set the `Property Value` field to `CloudWatch Alarm - Inbound from SNS > AlarmName`.
+      - Set `Exact Property Value Match` to `TRUE`.
+      - Click `OK`.
+
+   d. Connect the output from each step in turn to the input of the next step (e.g, a to b to c).
+
+The purpose of the optional step (c) is to ensure that only the xMatters event(s) associated with whatever triggered this event are terminated. If something other than CloudWatch is being used, adjust step c accordingly or leave it out if there can only be one xMatters event at a time.
 
 # Testing
 Testing your workflow will require the triggering of alarms and then clearing them again. When the first alarm for a given component triggers the workflow, you should see an incident appearing in the Status.io dashboard for that component. Subsequent alarms for the same component should not create additional incidents but, if they have a higher severity than earlier alarms, the incident will be updated to reflect that.
